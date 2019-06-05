@@ -39,3 +39,22 @@ This model is different from what's in pytorch model zoo. Although you can actua
 
 ## Acknowledgement
 A large part of the code is borrowed from [https://github.com/ry/tensorflow-resnet](https://github.com/ry/tensorflow-resnet)
+
+------------------
+
+# pytorch-resnet-gn
+
+Convert group norm pretrained model to pytorch.
+
+Requirement: torchvision 0.3
+
+```
+python convert_gn --layers 50 --mode pth
+```
+
+layers can be 50 and 101, mode can be pth or caffe. mode defines what you expect as input.
+
+The converted checkpoint gets:
+
+- Resnet50+GN: Prec@1 75.716 Prec@5 92.596
+- Resnet101+GN: Prec@1 77.046 Prec@5 93.438
