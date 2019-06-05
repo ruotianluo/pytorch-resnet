@@ -8,11 +8,19 @@ import skimage.io
 from caffe.proto import caffe_pb2
 from synset import *
 import torch
-from torch.autograd import Variable
 import torchvision.models as models
 import torch.nn.functional as F
 import resnet
 from collections import OrderedDict
+
+from torchvision import transforms as trn
+trn_preprocess = trn.Compose([
+        #trn.ToPILImage(),
+        #trn.Scale(256),
+        #trn.ToTensor(),
+        #trn.Normalize([0.4829476, 0.4545211, 0.404167],[0.229, 0.224, 0.225])
+        trn.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])
+])
 
 class CaffeParamProvider():
     def __init__(self, caffe_net):
@@ -20,6 +28,10 @@ class CaffeParamProvider():
 
     def conv_kernel(self, name):
         k = self.caffe_net.params[name][0].data
+        if name == 'conv1' and args.mode == 'pth':
+            k = k[:,[2,1,0]]
+            k *= 255.0
+            k *= np.array([0.229, 0.224, 0.225])[np.newaxis,:,np.newaxis,np.newaxis]
         return k
 
     def bn_gamma(self, name):
@@ -52,7 +64,8 @@ def preprocess(img):
     print 'mean red', np.mean(mean_bgr[:, :, 2])
     out = np.copy(img) * 255.0
     out = out[:, :, [2, 1, 0]]  # swap channel from RGB to BGR
-    out -= mean_bgr
+    # out -= mean_bgr
+    out -= mean_bgr.mean(0).mean(0)
     return out
 
 
@@ -130,6 +143,9 @@ def print_prob(prob):
 
 
 def parse_pth_varnames(p, pth_varname, num_layers):
+    # print pth_varname
+    if 'num_batches_tracked' in pth_varname:
+        return None
     if pth_varname == 'conv1.weight':
         return p.conv_kernel('conv1')
 
@@ -222,7 +238,7 @@ def parse_pth_varnames(p, pth_varname, num_layers):
 
 
 def checkpoint_fn(layers):
-    return 'resnet%d.pth' % layers
+    return 'resnet%d-%s.pth' % (layers, args.mode)
 
 def convert(img, img_p, layers):
     caffe_model = load_caffe(img_p, layers)
@@ -251,7 +267,8 @@ def convert(img, img_p, layers):
         data = parse_pth_varnames(param_provider, var_name, layers)
         #print "caffe data shape", data.shape
         #print "tf shape", var.get_shape()
-        new_state_dict[var_name] = torch.from_numpy(data).float()
+        if data is not None:
+            new_state_dict[var_name] = torch.from_numpy(data).float()
     model.load_state_dict(new_state_dict)
 
     o = []
@@ -273,7 +290,13 @@ def convert(img, img_p, layers):
     model.fc.register_forward_hook(hook)
     #model.fc.register_forward_hook(hook)
 
-    output_prob = model(Variable(torch.from_numpy(img_p[np.newaxis, :].transpose(0,3,1,2)).float(), volatile=True))
+    with torch.no_grad():
+        if args.mode == 'pth':
+            #output_prob = model(Variable(torch.from_numpy(img_p[np.newaxis, :].transpose([0,3,1,2])).float(), volatile=True))
+            I = torch.from_numpy(img.transpose([2,0,1])).float()
+            output_prob = model(trn_preprocess(I).unsqueeze(0))
+        else:
+            output_prob = model(torch.from_numpy(img_p[np.newaxis, :].transpose(0,3,1,2)).float())
 
     assert_almost_equal(caffe_model.blobs['conv1'].data, o[0])
     assert_almost_equal(caffe_model.blobs['pool1'].data, o[1])
@@ -296,6 +319,15 @@ def convert(img, img_p, layers):
 
     # Save the model
     torch.save(model.state_dict(), checkpoint_fn(layers))
+
+
+import argparse
+parser = argparse.ArgumentParser(description='Convert group norm checkpoints')
+parser.add_argument('--mode', default='pth', type=str,
+                    help='pth or caffe')
+
+global args
+args = parser.parse_args()
 
 
 def main():
