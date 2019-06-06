@@ -1,6 +1,6 @@
-""""""""""""""""""""""""""""
-This conversion is partly borrowed from Detectron.pytorch
-""""""""""""""""""""""""""""
+############################
+# This conversion is partly borrowed from Detectron.pytorch
+###########################
 
 import os
 os.environ["GLOG_minloglevel"] = "2"
